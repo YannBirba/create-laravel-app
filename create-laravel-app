@@ -1,0 +1,194 @@
+#!/bin/bash
+
+VERSION="1.0.0-beta.1"
+
+CYAN="\033[36m"
+GREEN="\033[32m"
+RED="\033[31m"
+YELLOW="\033[33m"
+WHITE="\033[37m"
+
+NC="\033[0m"
+BOLD='\033[1m'
+
+if [[ $1 == "-h" || $1 == "--help" ]]; then
+
+    echo ""
+    echo ""
+    echo "-- Create Laravel app ($VERSION) --"
+    echo ""
+    echo ""
+    echo "Usage: create-laravel-app [options]"
+    echo ""
+    echo "Create a new Laravel app with the given services"
+    echo ""
+
+    echo "By run this script in terminal you will create a laravel app in your current directory or in a specified directory."
+    echo ""
+
+    echo "Please provide one or more of the supported services (mysql, pgsql, mariadb, redis, memcached, meilisearch, minio, mailpit, selenium, soketi)."
+    echo ""
+
+    echo "If you do not specify which services you would like configured, a default stack of mysql, redis, meilisearch, mailpit, and selenium will be configured."
+    echo ""
+
+    echo "It use this enpoints to get the docker compose file and the sail file : https://laravel.build/app-name?with=service1,service2,service3"
+    echo ""
+
+    echo "Options:"
+    echo "    -h, --help"
+    echo "    -v, --version"
+    echo "    -d, --directory"
+    echo "    -s, --services"
+    echo "    -n, --name"
+    echo "    -y, -Y, --yes (autostart)"
+    echo ""
+    return 0
+
+fi
+
+if [[ $1 == "-v" || $1 == "--version" ]]; then
+    printf "\nCreate Laravel app by \e]8;;https://github.com/YannBirba\e\\@YannBirba\e]8;;\e\ version %s \n" "$VERSION"
+    return 0
+fi
+
+# -----------------------------------------------------------------------------------
+
+# Ensure that Docker is running...
+if ! docker info >/dev/null 2>&1; then
+    echo ""
+    echo -e "${BOLD}${RED}✕ Docker is not running ✕${NO_BG}"
+    echo ""
+    echo -e "${GREEN}↪ ${YELLOW}Please start Docker and try again.${NC}"
+    echo ""
+    return 1
+fi
+
+# -----------------------------------------------------------------------------------
+
+name=""
+dir="."
+services="none"
+auto_start="n"
+
+available_services=("mysql" "pgsql" "mariadb" "redis" "memcached" "meilisearch" "minio" "mailpit" "selenium" "soketi")
+services_available="${available_services[*]}"
+services_available="${services_available// /, }"
+
+while [[ $# -gt 0 ]]; do
+    key="$1"
+    case $key in
+    -n | --name)
+        name="$2"
+        shift
+        shift
+        ;;
+    -d | --directory)
+        dir="$2"
+        shift
+        shift
+        ;;
+    -s | --services)
+        services="$2"
+        shift
+        shift
+        ;;
+    -y | -Y | --yes)
+        auto_start="yes"
+        shift
+        ;;
+    *)
+        shift
+        ;;
+    esac
+done
+
+if [[ -z "$services" ]]; then
+    services="none"
+fi
+
+if [[ -z "$name" ]]; then
+    echo ""
+    echo "↪ Please provide a name for your app"
+    echo ""
+    return 1
+fi
+
+if [[ $services != "none" ]]; then
+    for service in $(
+        services_list=$services
+        echo "${services_list//,/ }"
+    ); do
+        if [[ ! " ${available_services[*]} " =~ " ${service} " ]]; then
+            echo ""
+            printf "${BOLD}${YELLOW}↪ Service \"%s\" is not available, available services: \e]8;;https://laravel.com/docs/10.x/installation#choosing-your-sail-services\e\\%s\e]8;;\e\ .${NC}" "$service" "$services_available"
+            echo "[$(date)] -- Service \"$service\" is not available, available services: $services_available ." >>/var/log/create-laravel-app.log
+            echo ""
+            return 1
+        fi
+    done
+fi
+
+if [[ $dir == "." ]]; then
+    dir=$(pwd)
+    app_dir="$dir/$name"
+else
+    if [[ ! -d $dir ]]; then
+        mkdir "$dir"
+        cd "$dir" || return 1
+        app_dir="$dir/$name"
+    else
+        echo ""
+        echo -e "${RED}${BOLD}Directory $dir already exists ${NC}"
+        echo ""
+        return 1
+    fi
+fi
+
+if [[ $services == "none" ]]; then
+    echo ""
+    printf "Creating Laravel app named %s with \e]8;;https://laravel.com/docs/10.x/installation#choosing-your-sail-services\e\\default services\e]8;;\e\ in %s" "$name" "$app_dir"
+    echo ""
+    echo "[$(date)] -- Create Laravel app ($VERSION) : named $name with default services on $app_dir" >>/var/log/create-laravel-app.log
+
+    if ! curl -s https://laravel.build/"$name" | bash; then
+        echo ""
+        echo -e "${RED}${BOLD}↪ An error occured while creating the app ${NC}"
+        echo ""
+        echo "[$(date)] -- An error occured while creating the app" >>/var/log/create-laravel-app.log
+        return 1
+    fi
+    return 0
+else
+    echo ""
+    echo "Creating Laravel app named $name with $services in $app_dir"
+    echo ""
+    echo "[$(date)] -- Create Laravel app ($VERSION) : named $name with $services on $app_dir" >>/var/log/create-laravel-app.log
+
+    if ! curl -s https://laravel.build/"$name"\?with="$services" | bash; then
+        echo ""
+        echo -e "${RED}${BOLD}↪ An error occured while creating the app ${NC}"
+        echo ""
+        echo "[$(date)] -- An error occured while creating the app" >>/var/log/create-laravel-app.log
+        return 1
+    fi
+fi
+
+echo ""
+printf "${GREEN}${BOLD}✓ App created successfully created in : \e]8;;code %s\e\\%s\e]8;;\e\ .${NC}" "$app_dir" "$app_dir"
+echo ""
+
+cd "$name" || return 1
+
+if [[ $auto_start == "yes" ]]; then
+    ./vendor/bin/sail up
+else
+    echo -e "${BOLD}${CYAN}Your app is ready! Build something amazing.${NC}"
+    echo ""
+    echo -e "${BOLD}${WHITE}Would you like to run the app now? ${YELLOW}[Y/n]${NC}"
+    read -r run_app
+
+    if [[ $run_app == "Y" || $run_app == "y" || $run_app == "" ]]; then
+        ./vendor/bin/sail up
+    fi
+fi
